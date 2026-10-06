@@ -3,6 +3,8 @@ package com.personal.hadsswitch;
 import java.lang.reflect.Method;
 import java.util.UUID;
 
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 
 /**
@@ -12,63 +14,114 @@ import net.minecraft.server.level.ServerLevel;
 public final class AitBridge {
     private AitBridge() {}
 
-    /** Flips HADS for the TARDIS whose interior is this level. Returns the new state, or null if not a TARDIS interior. */
-    public static Boolean toggleHads(ServerLevel level) throws Exception {
-        Class<?> worldCls = Class.forName("dev.amble.ait.core.world.TardisServerWorld");
-        UUID id = null;
-        boolean found = false;
-        for (Method m : worldCls.getMethods()) {
-            if (m.getName().equals("getTardisId") && m.getParameterCount() == 1
-                    && m.getParameterTypes()[0].isAssignableFrom(level.getClass())) {
-                id = (UUID) m.invoke(null, level);
-                found = true;
-                break;
-            }
-        }
-        if (!found) throw new NoSuchMethodException("TardisServerWorld.getTardisId(Level)");
-        if (id == null) return null;
+    private static Class<?> wrap(Class<?> c) {
+        if (!c.isPrimitive()) return c;
+        if (c == boolean.class) return Boolean.class;
+        if (c == int.class) return Integer.class;
+        if (c == long.class) return Long.class;
+        if (c == double.class) return Double.class;
+        if (c == float.class) return Float.class;
+        return c;
+    }
 
-        Class<?> mgrCls = Class.forName("dev.amble.ait.core.tardis.manager.ServerTardisManager");
-        Object mgr = mgrCls.getMethod("getInstance").invoke(null);
-        Object tardis = null;
-        for (Method m : mgrCls.getMethods()) {
-            if (m.getName().equals("demandTardis") && m.getParameterCount() == 2
-                    && m.getParameterTypes()[1] == UUID.class
-                    && m.getParameterTypes()[0].isAssignableFrom(level.getServer().getClass())) {
-                tardis = m.invoke(mgr, level.getServer(), id);
-                break;
-            }
-        }
-        if (tardis == null) return null;
-
-        Class<?> idCls = Class.forName("dev.amble.ait.api.tardis.TardisComponent$Id");
-        Object hadsId = idCls.getField("HADS").get(null);
-        Object hads = null;
-        for (Method m : tardis.getClass().getMethods()) {
-            if (m.getName().equals("handler") && m.getParameterCount() == 1
-                    && m.getParameterTypes()[0].isAssignableFrom(idCls)) {
-                hads = m.invoke(tardis, hadsId);
-                break;
-            }
-        }
-        if (hads == null) throw new IllegalStateException("TARDIS has no HADS handler");
-
-        Object value = hads.getClass().getMethod("enabled").invoke(hads);
-        Object current = value.getClass().getMethod("get").invoke(value);
-        boolean next = !Boolean.TRUE.equals(current);
-        boolean set = false;
-        for (Method m : value.getClass().getMethods()) {
-            if (m.getName().equals("set") && m.getParameterCount() == 1) {
-                try {
-                    m.invoke(value, Boolean.valueOf(next));
-                    set = true;
+    private static Method find(Class<?> cls, String name, Object[] args) throws NoSuchMethodException {
+        for (Method m : cls.getMethods()) {
+            if (!m.getName().equals(name) || m.getParameterCount() != args.length) continue;
+            Class<?>[] pt = m.getParameterTypes();
+            boolean ok = true;
+            for (int i = 0; i < pt.length; i++) {
+                if (args[i] != null && !wrap(pt[i]).isInstance(args[i])) {
+                    ok = false;
                     break;
-                } catch (IllegalArgumentException ignored) {
-                    // wrong overload, try the next one
                 }
             }
+            if (ok) return m;
         }
-        if (!set) throw new NoSuchMethodException("BoolValue.set");
-        return next;
+        throw new NoSuchMethodException(cls.getName() + "." + name);
+    }
+
+    private static Object call(Object target, String name, Object... args) throws Exception {
+        Method m = find(target.getClass(), name, args);
+        try {
+            m.setAccessible(true);
+        } catch (Exception ignored) {
+            // fine, public anyway
+        }
+        return m.invoke(target, args);
+    }
+
+    private static Object callStatic(Class<?> cls, String name, Object... args) throws Exception {
+        Method m = find(cls, name, args);
+        try {
+            m.setAccessible(true);
+        } catch (Exception ignored) {
+            // fine, public anyway
+        }
+        return m.invoke(null, args);
+    }
+
+    /** The id of the TARDIS whose interior is this level, or null if it isn't a TARDIS interior. */
+    public static UUID tardisIdOf(ServerLevel level) throws Exception {
+        Class<?> worldCls = Class.forName("dev.amble.ait.core.world.TardisServerWorld");
+        return (UUID) callStatic(worldCls, "getTardisId", level);
+    }
+
+    public static Object tardis(MinecraftServer server, UUID id) throws Exception {
+        Class<?> mgrCls = Class.forName("dev.amble.ait.core.tardis.manager.ServerTardisManager");
+        Object mgr = mgrCls.getMethod("getInstance").invoke(null);
+        return call(mgr, "demandTardis", server, id);
+    }
+
+    /** Sets AiT's own built-in HADS flag (we keep it off and run our own logic instead). */
+    public static void setBuiltInHads(Object tardis, boolean want) throws Exception {
+        Class<?> idCls = Class.forName("dev.amble.ait.api.tardis.TardisComponent$Id");
+        Object hadsId = idCls.getField("HADS").get(null);
+        Object hads = call(tardis, "handler", hadsId);
+        Object value = call(hads, "enabled");
+        Object current = call(value, "get");
+        if (Boolean.TRUE.equals(current) != want) {
+            call(value, "set", Boolean.valueOf(want));
+        }
+    }
+
+    public static Object travel(Object tardis) throws Exception {
+        return call(tardis, "travel");
+    }
+
+    public static String stateName(Object travel) throws Exception {
+        return ((Enum<?>) call(travel, "getState")).name();
+    }
+
+    public static Object position(Object travel) throws Exception {
+        return call(travel, "position");
+    }
+
+    public static ServerLevel worldOf(Object pos) throws Exception {
+        return (ServerLevel) call(pos, "getWorld");
+    }
+
+    public static BlockPos blockOf(Object pos) throws Exception {
+        return (BlockPos) call(pos, "getPos");
+    }
+
+    public static Object destination(Object travel) throws Exception {
+        return call(travel, "destination");
+    }
+
+    public static void setDestination(Object travel, Object pos) throws Exception {
+        call(travel, "destination", pos);
+    }
+
+    public static void dematerialize(Object travel) throws Exception {
+        call(travel, "dematerialize");
+    }
+
+    public static void rematerialize(Object travel) throws Exception {
+        call(travel, "rematerialize");
+    }
+
+    public static void alarm(Object tardis, boolean on) throws Exception {
+        Object alarm = call(tardis, "alarm");
+        call(alarm, on ? "enable" : "disable");
     }
 }

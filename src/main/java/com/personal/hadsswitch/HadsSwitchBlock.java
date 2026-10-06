@@ -1,5 +1,7 @@
 package com.personal.hadsswitch;
 
+import com.mojang.logging.LogUtils;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -14,9 +16,11 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.phys.BlockHitResult;
+import org.slf4j.Logger;
 
 public class HadsSwitchBlock extends Block {
     public static final BooleanProperty ACTIVE = BooleanProperty.create("active");
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     public HadsSwitchBlock(Properties properties) {
         super(properties);
@@ -35,7 +39,7 @@ public class HadsSwitchBlock extends Block {
             return InteractionResult.SUCCESS;
         }
         try {
-            Boolean nowEnabled = AitBridge.toggleHads((ServerLevel) level);
+            Boolean nowEnabled = HadsManager.toggle((ServerLevel) level);
             if (nowEnabled == null) {
                 player.displayClientMessage(Component.literal("HADS Switch only works inside a TARDIS."), true);
                 return InteractionResult.CONSUME;
@@ -45,14 +49,9 @@ public class HadsSwitchBlock extends Block {
                     nowEnabled ? 1.2f : 0.8f);
             player.displayClientMessage(Component.literal(nowEnabled ? "HADS: ENGAGED" : "HADS: DISENGAGED"), true);
         } catch (Exception e) {
-            HadsSwitchMod_LOG.error("Could not toggle HADS", e);
+            LOGGER.error("Could not toggle HADS", e);
             player.displayClientMessage(Component.literal("HADS link failed - check latest.log"), true);
         }
         return InteractionResult.CONSUME;
-    }
-
-    private static final class HadsSwitchMod_LOG {
-        private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
-        static void error(String msg, Throwable t) { LOGGER.error(msg, t); }
     }
 }

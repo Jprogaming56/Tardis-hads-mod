@@ -39,7 +39,7 @@ public class HadsSwitchBlock extends Block {
             return InteractionResult.SUCCESS;
         }
         try {
-            Boolean nowEnabled = HadsManager.toggle((ServerLevel) level);
+            Boolean nowEnabled = HadsManager.toggle((ServerLevel) level, player);
             if (nowEnabled == null) {
                 player.displayClientMessage(Component.literal("HADS Switch only works inside a TARDIS."), true);
                 return InteractionResult.CONSUME;

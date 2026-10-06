@@ -17,6 +17,8 @@ public final class AitBridge {
     private static Class<?> wrap(Class<?> c) {
         if (!c.isPrimitive()) return c;
         if (c == boolean.class) return Boolean.class;
+        if (c == byte.class) return Byte.class;
+        if (c == short.class) return Short.class;
         if (c == int.class) return Integer.class;
         if (c == long.class) return Long.class;
         if (c == double.class) return Double.class;
@@ -123,5 +125,33 @@ public final class AitBridge {
     public static void alarm(Object tardis, boolean on) throws Exception {
         Object alarm = call(tardis, "alarm");
         call(alarm, on ? "enable" : "disable");
+    }
+
+    /** True if this level is the inside of some TARDIS. */
+    public static boolean isInterior(ServerLevel level) {
+        try {
+            return tardisIdOf(level) != null;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Builds an AiT position (world + block + rotation). */
+    public static Object makePos(ServerLevel level, BlockPos pos, byte rotation) throws Exception {
+        Class<?> cls = Class.forName("dev.amble.ait.lib.data.CachedDirectedGlobalPos");
+        return callStatic(cls, "create", level, pos, Byte.valueOf(rotation));
+    }
+
+    /** The facing of an existing AiT position, or 0 if it can't be read. */
+    public static byte rotationOf(Object pos) {
+        for (String name : new String[] {"getRotation", "rotation"}) {
+            try {
+                Object r = call(pos, name);
+                if (r instanceof Number n) return n.byteValue();
+            } catch (Exception ignored) {
+                // try next name
+            }
+        }
+        return 0;
     }
 }

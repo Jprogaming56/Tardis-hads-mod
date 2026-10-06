@@ -1,7 +1,10 @@
 package com.personal.hadsswitch;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -13,6 +16,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.NeutralMob;
 import net.minecraft.world.entity.item.PrimedTnt;
@@ -20,6 +24,7 @@ import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraftforge.event.TickEvent;
@@ -30,9 +35,10 @@ import org.slf4j.Logger;
 
 /**
  * Our own HADS: leave when danger shows up at the TARDIS, then wait in the vortex while watching the area
- * around YOU (the player who switched HADS on). Once nothing hostile has been near you for a while, the
- * TARDIS materialises next to you. If you are inside a TARDIS (or offline) it watches its old spot instead
- * and returns there.
+ * around YOU (the player who switched HADS on). Once nothing hostile has been near you for 20 seconds AND
+ * a safe landing spot exists a few blocks from you (flat 3x3 floor, clear air above, loaded, dry), the
+ * TARDIS materialises there. If there is no safe spot it stays in the vortex and keeps looking. If you are
+ * inside a TARDIS (or offline) it watches its old spot instead and returns there.
  *
  * All times are in ticks (20 ticks = 1 second). Change the numbers below to taste.
  */
@@ -60,6 +66,23 @@ public final class HadsManager {
     /** Pause before HADS can trigger again after a trip (10 s). */
     private static final long COOLDOWN_AFTER_TRIP = 200;
 
+    // Where the TARDIS is allowed to land near you.
+    /** Sideways distance from you (blocks): not on top of you, not far away. */
+    private static final int LANDING_MIN_DISTANCE = 3;
+    private static final int LANDING_MAX_DISTANCE = 6;
+    /** The spot needs a flat floor and clear air this far out to every side (1 = a 3x3 area). */
+    private static final int LANDING_HALF_WIDTH = 1;
+    /** Clear air needed above the floor (the exterior is 2 blocks tall). */
+    private static final int LANDING_HEIGHT = 2;
+    /** How far above / below you to look for a floor (blocks). */
+    private static final int LANDING_MAX_RISE = 3;
+    private static final int LANDING_MAX_DROP = 4;
+    /** How often to search for a landing spot while waiting in the vortex (ticks, 20 = 1 s). */
+    private static final long SEARCH_INTERVAL = 20;
+
+    /** Sideways offsets to try, closest to you first. */
+    private static final List<int[]> LANDING_OFFSETS = buildLandingOffsets();
+
     private static final class Trip {
         Object homePos;
         ServerLevel homeWorld;
@@ -70,6 +93,7 @@ public final class HadsManager {
         long flightSeenAt = -1;
         long calmSince = -1;
         long rematCalledAt = -1;
+        long lastSearchAt = -1;
         boolean lastFollowing;
     }
 
@@ -191,15 +215,23 @@ public final class HadsManager {
                         && trip.calmSince >= 0
                         && now - trip.calmSince >= CALM_BEFORE_RETURN);
                 boolean canTry = trip.rematCalledAt < 0 || now - trip.rematCalledAt >= 200;
-                if (ready && canTry) {
+                if (ready && canTry && now - trip.lastSearchAt >= SEARCH_INTERVAL) {
+                    trip.lastSearchAt = now;
                     Object dest = trip.homePos;
+                    boolean land = true;
                     if (scan.followingPlayer()) {
                         BlockPos spot = findLanding(scan.world(), scan.pos());
-                        dest = AitBridge.makePos(scan.world(), spot, AitBridge.rotationOf(trip.homePos));
+                        if (spot != null) {
+                            dest = AitBridge.makePos(scan.world(), spot, AitBridge.rotationOf(trip.homePos));
+                        } else if (enabled) {
+                            land = false; // no safe spot near you yet: stay in the vortex and keep looking
+                        } // HADS switched off: just go back to the old spot instead of getting stuck
                     }
-                    AitBridge.setDestination(travel, dest);
-                    AitBridge.rematerialize(travel);
-                    trip.rematCalledAt = now;
+                    if (land) {
+                        AitBridge.setDestination(travel, dest);
+                        AitBridge.rematerialize(travel);
+                        trip.rematCalledAt = now;
+                    }
                 }
             }
             case "LANDED" -> {
@@ -231,31 +263,64 @@ public final class HadsManager {
         return new Scan(trip.homeWorld, trip.homeBlock, false);
     }
 
-    /** Finds a flat, empty 1x2 spot a few blocks from the player; falls back to the player's own spot. */
+    private static List<int[]> buildLandingOffsets() {
+        List<int[]> list = new ArrayList<>();
+        for (int dx = -LANDING_MAX_DISTANCE; dx <= LANDING_MAX_DISTANCE; dx++) {
+            for (int dz = -LANDING_MAX_DISTANCE; dz <= LANDING_MAX_DISTANCE; dz++) {
+                int far = Math.max(Math.abs(dx), Math.abs(dz));
+                if (far < LANDING_MIN_DISTANCE || far > LANDING_MAX_DISTANCE) continue;
+                list.add(new int[] {dx, dz});
+            }
+        }
+        list.sort(Comparator.comparingInt(o -> o[0] * o[0] + o[1] * o[1]));
+        return list;
+    }
+
+    /**
+     * Looks for a safe spot a few blocks from the player, closest first (and closest to your height first).
+     * Returns null if there isn't one, in which case the TARDIS keeps waiting in the vortex.
+     */
     private static BlockPos findLanding(ServerLevel world, BlockPos center) {
-        int[] distances = {4, 6, 3, 8};
-        int[][] dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
-        for (int dist : distances) {
-            for (int[] d : dirs) {
-                int x = center.getX() + d[0] * dist;
-                int z = center.getZ() + d[1] * dist;
-                for (int y = center.getY() + 3; y >= center.getY() - 4; y--) {
-                    BlockPos p = new BlockPos(x, y, z);
-                    if (!world.hasChunkAt(p)) break;
-                    if (isStandable(world, p)) return p;
+        int maxK = Math.max(LANDING_MAX_RISE, LANDING_MAX_DROP);
+        for (int[] o : LANDING_OFFSETS) {
+            int x = center.getX() + o[0];
+            int z = center.getZ() + o[1];
+            for (int k = 0; k <= maxK; k++) {
+                if (k <= LANDING_MAX_RISE) {
+                    BlockPos p = new BlockPos(x, center.getY() + k, z);
+                    if (isSafeLanding(world, p)) return p;
+                }
+                if (k > 0 && k <= LANDING_MAX_DROP) {
+                    BlockPos p = new BlockPos(x, center.getY() - k, z);
+                    if (isSafeLanding(world, p)) return p;
                 }
             }
         }
-        return center;
+        return null;
     }
 
-    private static boolean isStandable(ServerLevel world, BlockPos p) {
-        BlockState feet = world.getBlockState(p);
-        BlockState head = world.getBlockState(p.above());
-        BlockState floor = world.getBlockState(p.below());
-        return feet.getCollisionShape(world, p).isEmpty() && feet.getFluidState().isEmpty()
-                && head.getCollisionShape(world, p.above()).isEmpty() && head.getFluidState().isEmpty()
-                && floor.isFaceSturdy(world, p.below(), Direction.UP) && floor.getFluidState().isEmpty();
+    /**
+     * p is the block the TARDIS would stand in. The whole area around it must be loaded, inside the world
+     * border, have a flat solid dry floor, and be free of blocks, liquids and fire up to the exterior's height.
+     */
+    private static boolean isSafeLanding(ServerLevel world, BlockPos p) {
+        BlockPos lo = p.offset(-LANDING_HALF_WIDTH, -1, -LANDING_HALF_WIDTH);
+        BlockPos hi = p.offset(LANDING_HALF_WIDTH, LANDING_HEIGHT - 1, LANDING_HALF_WIDTH);
+        if (world.isOutsideBuildHeight(lo) || world.isOutsideBuildHeight(hi)) return false;
+        if (!world.getWorldBorder().isWithinBounds(lo) || !world.getWorldBorder().isWithinBounds(hi)) return false;
+        if (!world.hasChunksAt(lo, hi)) return false;
+
+        int floorY = p.getY() - 1;
+        for (BlockPos q : BlockPos.betweenClosed(lo, hi)) {
+            BlockState s = world.getBlockState(q);
+            if (!s.getFluidState().isEmpty()) return false;
+            if (q.getY() == floorY) {
+                if (!s.isFaceSturdy(world, q, Direction.UP) || s.is(Blocks.MAGMA_BLOCK)) return false;
+            } else if (!s.getCollisionShape(world, q).isEmpty() || s.is(BlockTags.FIRE)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean isDanger(ServerLevel world, BlockPos pos,

@@ -1,0 +1,7 @@
+{
+  "hads_demat": {
+    "sounds": [
+      { "name": "hadsswitch:hads_demat", "stream": true }
+    ]
+  }
+}

@@ -16,6 +16,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.NeutralMob;
@@ -66,6 +68,11 @@ public final class HadsManager {
     /** Pause before HADS can trigger again after a trip (10 s). */
     private static final long COOLDOWN_AFTER_TRIP = 200;
 
+    /** Longest we wait for the doors to finish closing before dematerialising anyway (2 s). */
+    private static final long DOOR_CLOSE_TIMEOUT = 40;
+    /** Loudness of the HADS demat sound (above 1.0 it carries further than normal sounds). */
+    private static final float HADS_SOUND_VOLUME = 2.0f;
+
     // Where the TARDIS is allowed to land near you.
     /** Sideways distance from you (blocks): not on top of you, not far away. */
     private static final int LANDING_MIN_DISTANCE = 3;
@@ -94,6 +101,7 @@ public final class HadsManager {
         long calmSince = -1;
         long rematCalledAt = -1;
         long lastSearchAt = -1;
+        boolean doorsClosing;
         boolean lastFollowing;
     }
 
@@ -183,10 +191,34 @@ public final class HadsManager {
                 Player near = world.getNearestPlayer(block.getX(), block.getY(), block.getZ(), 48, false);
                 if (near != null) t.playerId = near.getUUID();
             }
-            AitBridge.setDestination(travel, posObj); // safe default: come back to the same spot
-            AitBridge.dematerialize(travel);
-            AitBridge.alarm(tardis, true);
-            TRIPS.put(id, t);
+            // AiT refuses to dematerialise with the doors open, so slam them shut first.
+            Object door = AitBridge.door(tardis);
+            if (AitBridge.isDoorOpen(door)) {
+                AitBridge.closeDoors(door);
+                t.doorsClosing = true;
+                TRIPS.put(id, t);
+                return;
+            }
+            startHadsDemat(server, id, tardis, travel, t, now);
+            return;
+        }
+
+        if (trip.doorsClosing && !"LANDED".equals(state)) {
+            TRIPS.remove(id); // the TARDIS took off some other way while the doors were closing
+            return;
+        }
+        if (trip.doorsClosing) {
+            if (!enabled) {
+                TRIPS.remove(id); // HADS was switched off while the doors were closing
+                return;
+            }
+            Object door = AitBridge.door(tardis);
+            if (AitBridge.isDoorOpen(door)) {
+                AitBridge.closeDoors(door); // someone reopened them: shut them again
+            }
+            if (AitBridge.isDoorClosed(door) || now - trip.startedAt >= DOOR_CLOSE_TIMEOUT) {
+                startHadsDemat(server, id, tardis, travel, trip, now);
+            }
             return;
         }
 
@@ -248,6 +280,46 @@ public final class HadsManager {
             }
             default -> {
                 // DEMAT or MAT: let the animation play
+            }
+        }
+    }
+
+    /**
+     * The HADS dematerialise: the doors are shut by now. Plays the HADS sound (only here, so normal demats and
+     * the return trip stay silent) and starts the alarm. If AiT still refuses, give up quietly and retry later.
+     */
+    private static void startHadsDemat(MinecraftServer server, UUID id, Object tardis, Object travel,
+                                       Trip t, long now) throws Exception {
+        AitBridge.setDestination(travel, t.homePos); // safe default: come back to the same spot
+        AitBridge.dematerialize(travel);
+        if ("LANDED".equals(AitBridge.stateName(travel))) {
+            try {
+                AitBridge.setDestination(travel, t.originalDestination);
+            } catch (Exception ignored) {
+                // not important
+            }
+            TRIPS.remove(id);
+            COOLDOWN.put(id, now + 600);
+            return;
+        }
+        t.doorsClosing = false;
+        t.startedAt = now;
+        AitBridge.alarm(tardis, true);
+        playHadsSound(server, id, t);
+        TRIPS.put(id, t);
+    }
+
+    /** Plays the HADS sound at the parked exterior and to anyone standing inside that TARDIS. */
+    private static void playHadsSound(MinecraftServer server, UUID id, Trip t) {
+        SoundEvent sound = HadsSwitchMod.HADS_DEMAT_SOUND.get();
+        t.homeWorld.playSound(null, t.homeBlock, sound, SoundSource.BLOCKS, HADS_SOUND_VOLUME, 1.0f);
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            try {
+                if (id.equals(AitBridge.tardisIdOf(p.serverLevel()))) {
+                    p.playNotifySound(sound, SoundSource.BLOCKS, HADS_SOUND_VOLUME, 1.0f);
+                }
+            } catch (Exception ignored) {
+                // not inside a TARDIS
             }
         }
     }

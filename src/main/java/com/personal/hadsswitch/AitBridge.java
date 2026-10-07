@@ -122,6 +122,28 @@ public final class AitBridge {
         call(travel, "rematerialize");
     }
 
+    public static Object door(Object tardis) throws Exception {
+        return call(tardis, "door");
+    }
+
+    /** True if the TARDIS doors are open (AiT refuses to dematerialise while they are). */
+    public static boolean isDoorOpen(Object door) throws Exception {
+        return Boolean.TRUE.equals(call(door, "isOpen"));
+    }
+
+    /** True once the doors are fully shut (the closing animation has finished). */
+    public static boolean isDoorClosed(Object door) throws Exception {
+        try {
+            return Boolean.TRUE.equals(call(door, "isClosed"));
+        } catch (NoSuchMethodException e) {
+            return !isDoorOpen(door);
+        }
+    }
+
+    public static void closeDoors(Object door) throws Exception {
+        call(door, "closeDoors");
+    }
+
     public static void alarm(Object tardis, boolean on) throws Exception {
         Object alarm = call(tardis, "alarm");
         call(alarm, on ? "enable" : "disable");

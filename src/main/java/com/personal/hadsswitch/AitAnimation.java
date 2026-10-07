@@ -47,4 +47,16 @@ public final class AitAnimation {
     public static void setAnimationFor(Object travel, String stateName, Object resourceLocation) throws Exception {
         invoke(travel, "setAnimationFor", stateValue(stateName), resourceLocation);
     }
+
+    /** True if AiT has loaded an animation with this id (or if we simply can't tell). */
+    public static boolean isRegistered(Object resourceLocation) {
+        try {
+            Class<?> reg = Class.forName("dev.amble.ait.core.tardis.animation.v2.datapack.TardisAnimationRegistry");
+            Object instance = reg.getMethod("getInstance").invoke(null);
+            Object result = invoke(instance, "getOptional", resourceLocation);
+            return result instanceof java.util.Optional<?> o && o.isPresent();
+        } catch (Exception e) {
+            return true;
+        }
+    }
 }

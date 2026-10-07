@@ -282,9 +282,18 @@ public final class HadsManager {
                         if (!trip.matAnimationSwapped) {
                             try {
                                 Object original = AitAnimation.animationIdFor(travel, "MAT");
-                                data.setPendingRestore(id, String.valueOf(original));
-                                AitAnimation.setAnimationFor(travel, "MAT", HADS_MAT_ANIMATION);
-                                trip.matAnimationSwapped = true;
+                                if (!AitAnimation.isRegistered(HADS_MAT_ANIMATION)) {
+                                    LOGGER.warn("HADS Switch: AiT has not loaded the animation {}, so the normal arrival "
+                                            + "animation will play. Check wby_mat.json and wby.animation.json are in the mod, "
+                                            + "and look above for 'Error decoding datapack animation' or "
+                                            + "'No blockbench animation found'.", HADS_MAT_ANIMATION);
+                                } else {
+                                    data.setPendingRestore(id, String.valueOf(original));
+                                    AitAnimation.setAnimationFor(travel, "MAT", HADS_MAT_ANIMATION);
+                                    trip.matAnimationSwapped = true;
+                                    LOGGER.info("HADS Switch: arrival animation {} set (was {}), TARDIS now reports {}",
+                                            HADS_MAT_ANIMATION, original, AitAnimation.animationIdFor(travel, "MAT"));
+                                }
                             } catch (Exception e) {
                                 data.clearPendingRestore(id);
                                 LOGGER.warn("HADS Switch could not set its arrival animation, using the normal one", e);

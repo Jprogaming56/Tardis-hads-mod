@@ -13,6 +13,7 @@ import com.mojang.logging.LogUtils;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -67,6 +68,9 @@ public final class HadsManager {
     /** Pause before HADS can trigger again after a trip (10 s). */
     private static final long COOLDOWN_AFTER_TRIP = 200;
 
+    /** The custom arrival animation, played only when coming back from a HADS trip. */
+    private static final ResourceLocation HADS_MAT_ANIMATION = new ResourceLocation(HadsSwitchMod.MOD_ID, "wby_mat");
+
     /** Longest we wait for the doors to finish closing before dematerialising anyway (2 s). */
     private static final long DOOR_CLOSE_TIMEOUT = 40;
     /** Players this close to the parked TARDIS (blocks) hear the HADS music. */
@@ -103,6 +107,7 @@ public final class HadsManager {
         final Set<UUID> listeners = new HashSet<>(); // players currently hearing the HADS music
         boolean doorsClosing;
         boolean lastFollowing;
+        boolean matAnimationSwapped;
     }
 
     private record Scan(ServerLevel world, BlockPos pos, boolean followingPlayer) {}
@@ -143,6 +148,7 @@ public final class HadsManager {
         HadsData data = HadsData.get(server);
         Set<UUID> ids = new HashSet<>(data.enabledIds());
         ids.addAll(TRIPS.keySet());
+        ids.addAll(data.pendingRestoreIds());
         for (UUID id : ids) {
             if (FAILED.contains(id)) continue;
             try {
@@ -151,6 +157,11 @@ public final class HadsManager {
                 LOGGER.error("HADS Switch stopped handling TARDIS {} because of an error", id, t);
                 FAILED.add(id);
                 TRIPS.remove(id);
+                try {
+                    restoreMatAnimation(server, data, id);
+                } catch (Throwable ignored) {
+                    // best effort
+                }
             }
         }
     }
@@ -168,6 +179,10 @@ public final class HadsManager {
         }
         Object travel = AitBridge.travel(tardis);
         String state = AitBridge.stateName(travel);
+
+        if (trip == null && data.getPendingRestore(id) != null) {
+            restoreMatAnimation(server, data, id); // left over from an interrupted trip
+        }
 
         if (trip == null) {
             if (!enabled || !"LANDED".equals(state)) return;
@@ -264,6 +279,17 @@ public final class HadsManager {
                     }
                     if (land) {
                         AitBridge.setDestination(travel, dest);
+                        if (!trip.matAnimationSwapped) {
+                            try {
+                                Object original = AitAnimation.animationIdFor(travel, "MAT");
+                                data.setPendingRestore(id, String.valueOf(original));
+                                AitAnimation.setAnimationFor(travel, "MAT", HADS_MAT_ANIMATION);
+                                trip.matAnimationSwapped = true;
+                            } catch (Exception e) {
+                                data.clearPendingRestore(id);
+                                LOGGER.warn("HADS Switch could not set its arrival animation, using the normal one", e);
+                            }
+                        }
                         AitBridge.rematerialize(travel);
                         trip.rematCalledAt = now;
                     }
@@ -280,6 +306,7 @@ public final class HadsManager {
                 }
                 AitBridge.alarm(tardis, false);
                 TRIPS.remove(id);
+                restoreMatAnimation(server, data, id);
                 COOLDOWN.put(id, now + (wentAnywhere ? COOLDOWN_AFTER_TRIP : 600));
             }
             default -> {
@@ -340,6 +367,22 @@ public final class HadsManager {
             }
         }
         t.listeners.clear();
+    }
+
+    /** Puts the TARDIS's normal arrival animation back after a HADS trip. */
+    private static void restoreMatAnimation(MinecraftServer server, HadsData data, UUID id) throws Exception {
+        String original = data.getPendingRestore(id);
+        if (original == null) return;
+        Object tardis = AitBridge.tardis(server, id);
+        if (tardis != null) {
+            Object travel = AitBridge.travel(tardis);
+            Object current = AitAnimation.animationIdFor(travel, "MAT");
+            // only undo our own change, never one the player made in the meantime
+            if (HADS_MAT_ANIMATION.toString().equals(String.valueOf(current))) {
+                AitAnimation.setAnimationFor(travel, "MAT", new ResourceLocation(original));
+            }
+        }
+        data.clearPendingRestore(id);
     }
 
     /** Where to look for danger: around the player if they are out in the world, otherwise the old spot. */

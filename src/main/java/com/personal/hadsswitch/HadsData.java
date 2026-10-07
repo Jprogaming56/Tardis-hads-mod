@@ -19,6 +19,7 @@ public class HadsData extends SavedData {
     private static final String NAME = "hadsswitch_enabled";
     private final Set<UUID> enabled = new HashSet<>();
     private final Map<UUID, UUID> owners = new HashMap<>();
+    private final Map<UUID, String> pendingRestore = new HashMap<>();
 
     public static HadsData get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(HadsData::load, HadsData::new, NAME);
@@ -42,6 +43,14 @@ public class HadsData extends SavedData {
                 // skip bad entry
             }
         }
+        CompoundTag pend = tag.getCompound("pending_restore");
+        for (String key : pend.getAllKeys()) {
+            try {
+                data.pendingRestore.put(UUID.fromString(key), pend.getString(key));
+            } catch (IllegalArgumentException ignored) {
+                // skip bad entry
+            }
+        }
         return data;
     }
 
@@ -57,6 +66,11 @@ public class HadsData extends SavedData {
             own.putString(e.getKey().toString(), e.getValue().toString());
         }
         tag.put("owners", own);
+        CompoundTag pend = new CompoundTag();
+        for (Map.Entry<UUID, String> e : pendingRestore.entrySet()) {
+            pend.putString(e.getKey().toString(), e.getValue());
+        }
+        tag.put("pending_restore", pend);
         return tag;
     }
 
@@ -84,5 +98,25 @@ public class HadsData extends SavedData {
         if (!playerId.equals(old)) {
             setDirty();
         }
+    }
+
+    /** The normal arrival animation to put back after a HADS trip, or null if nothing is pending. */
+    public String getPendingRestore(UUID tardisId) {
+        return pendingRestore.get(tardisId);
+    }
+
+    public void setPendingRestore(UUID tardisId, String animationId) {
+        pendingRestore.put(tardisId, animationId);
+        setDirty();
+    }
+
+    public void clearPendingRestore(UUID tardisId) {
+        if (pendingRestore.remove(tardisId) != null) {
+            setDirty();
+        }
+    }
+
+    public Set<UUID> pendingRestoreIds() {
+        return Collections.unmodifiableSet(pendingRestore.keySet());
     }
 }

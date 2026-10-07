@@ -16,8 +16,6 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.sounds.SoundEvent;
-import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.NeutralMob;
@@ -29,6 +27,7 @@ import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -70,8 +69,8 @@ public final class HadsManager {
 
     /** Longest we wait for the doors to finish closing before dematerialising anyway (2 s). */
     private static final long DOOR_CLOSE_TIMEOUT = 40;
-    /** Loudness of the HADS demat sound (above 1.0 it carries further than normal sounds). */
-    private static final float HADS_SOUND_VOLUME = 2.0f;
+    /** Players this close to the parked TARDIS (blocks) hear the HADS music. */
+    private static final double MUSIC_RANGE = 32.0;
 
     // Where the TARDIS is allowed to land near you.
     /** Sideways distance from you (blocks): not on top of you, not far away. */
@@ -101,6 +100,7 @@ public final class HadsManager {
         long calmSince = -1;
         long rematCalledAt = -1;
         long lastSearchAt = -1;
+        final Set<UUID> listeners = new HashSet<>(); // players currently hearing the HADS music
         boolean doorsClosing;
         boolean lastFollowing;
     }
@@ -224,7 +224,10 @@ public final class HadsManager {
 
         switch (state) {
             case "FLIGHT" -> {
-                if (trip.flightSeenAt < 0) trip.flightSeenAt = now;
+                if (trip.flightSeenAt < 0) {
+                    trip.flightSeenAt = now;
+                    fadeMusic(server, trip); // the TARDIS has fully vanished: fade the music out
+                }
 
                 Scan scan = scanTarget(server, trip);
                 if (scan.followingPlayer() != trip.lastFollowing) {
@@ -268,6 +271,7 @@ public final class HadsManager {
             }
             case "LANDED" -> {
                 if (now - trip.startedAt < 60) return; // dematerialise hasn't started yet
+                fadeMusic(server, trip);
                 boolean wentAnywhere = trip.flightSeenAt >= 0;
                 try {
                     AitBridge.setDestination(travel, trip.originalDestination);
@@ -305,23 +309,37 @@ public final class HadsManager {
         t.doorsClosing = false;
         t.startedAt = now;
         AitBridge.alarm(tardis, true);
-        playHadsSound(server, id, t);
+        startMusic(server, id, t);
         TRIPS.put(id, t);
     }
 
-    /** Plays the HADS sound at the parked exterior and to anyone standing inside that TARDIS. */
-    private static void playHadsSound(MinecraftServer server, UUID id, Trip t) {
-        SoundEvent sound = HadsSwitchMod.HADS_DEMAT_SOUND.get();
-        t.homeWorld.playSound(null, t.homeBlock, sound, SoundSource.BLOCKS, HADS_SOUND_VOLUME, 1.0f);
+    /** Starts the HADS music for players near the parked exterior and for anyone standing inside that TARDIS. */
+    private static void startMusic(MinecraftServer server, UUID id, Trip t) {
+        Vec3 spot = Vec3.atCenterOf(t.homeBlock);
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            boolean inside = false;
             try {
-                if (id.equals(AitBridge.tardisIdOf(p.serverLevel()))) {
-                    p.playNotifySound(sound, SoundSource.BLOCKS, HADS_SOUND_VOLUME, 1.0f);
-                }
+                inside = id.equals(AitBridge.tardisIdOf(p.serverLevel()));
             } catch (Exception ignored) {
                 // not inside a TARDIS
             }
+            boolean near = p.serverLevel() == t.homeWorld && p.distanceToSqr(spot) <= MUSIC_RANGE * MUSIC_RANGE;
+            if (inside || near) {
+                HadsNetwork.send(p, HadsNetwork.Music.begin(inside, spot.x, spot.y, spot.z));
+                t.listeners.add(p.getUUID());
+            }
         }
+    }
+
+    /** Fades the music out for everyone who was given it (their game does the fade). */
+    private static void fadeMusic(MinecraftServer server, Trip t) {
+        for (UUID uuid : t.listeners) {
+            ServerPlayer p = server.getPlayerList().getPlayer(uuid);
+            if (p != null) {
+                HadsNetwork.send(p, HadsNetwork.Music.fade());
+            }
+        }
+        t.listeners.clear();
     }
 
     /** Where to look for danger: around the player if they are out in the world, otherwise the old spot. */

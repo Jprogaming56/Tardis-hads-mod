@@ -12,6 +12,7 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
@@ -43,7 +44,12 @@ public class HadsSwitchMod {
         BLOCKS.register(bus);
         ITEMS.register(bus);
         SOUNDS.register(bus);
+        bus.addListener(this::commonSetup);
         bus.addListener(this::addToCreativeTab);
+    }
+
+    private void commonSetup(FMLCommonSetupEvent event) {
+        event.enqueueWork(HadsNetwork::register);
     }
 
     private void addToCreativeTab(BuildCreativeModeTabContentsEvent event) {

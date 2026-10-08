@@ -1,5 +1,6 @@
 package com.personal.hadsswitch;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 /**
@@ -48,15 +49,35 @@ public final class AitAnimation {
         invoke(travel, "setAnimationFor", stateValue(stateName), resourceLocation);
     }
 
-    /** True if AiT has loaded an animation with this id (or if we simply can't tell). */
+    /**
+     * True if AiT has loaded this animation: both its type file (data/.../fx/animation/type) AND the keyframes it
+     * points at (an animation of the same name inside a data/.../fx/animation/keyframes/*.animation.json file).
+     * AiT registers a type even when its keyframes are missing and then quietly plays a random other animation,
+     * so the second check is the one that matters. Returns true if we simply can't tell.
+     */
     public static boolean isRegistered(Object resourceLocation) {
         try {
             Class<?> reg = Class.forName("dev.amble.ait.core.tardis.animation.v2.datapack.TardisAnimationRegistry");
             Object instance = reg.getMethod("getInstance").invoke(null);
             Object result = invoke(instance, "getOptional", resourceLocation);
-            return result instanceof java.util.Optional<?> o && o.isPresent();
+            if (!(result instanceof java.util.Optional<?> o && o.isPresent())) return false;
         } catch (Exception e) {
-            return true;
+            // can't tell from the registry, fall through to the keyframes check
         }
+        try {
+            Class<?> parser = Class.forName("dev.amble.ait.core.tardis.animation.v2.blockbench.BlockbenchParser");
+            for (Method m : parser.getMethods()) {
+                if (m.getName().equals("getOrThrow") && m.getParameterCount() == 1
+                        && java.lang.reflect.Modifier.isStatic(m.getModifiers())) {
+                    m.invoke(null, resourceLocation); // throws if AiT has no keyframes under this name
+                    return true;
+                }
+            }
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof IllegalStateException) return false; // "No blockbench animation found"
+        } catch (Exception ignored) {
+            // can't tell
+        }
+        return true;
     }
 }

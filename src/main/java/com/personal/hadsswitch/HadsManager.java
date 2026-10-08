@@ -385,9 +385,8 @@ public final class HadsManager {
         try {
             if (!AitAnimation.isRegistered(custom)) {
                 LOGGER.error("HADS Switch: AiT has not loaded the animation {}, so the normal {} animation will play. "
-                        + "Check that both the keyframes file (data/{}/fx/animation/keyframes/{}.json) and the type "
-                        + "file (data/{}/fx/animation/type/{}.json) are in the mod, and look above in the log for "
-                        + "'Error decoding datapack animation' or 'No blockbench animation found'.",
+                        + "AiT needs data/{}/fx/animation/keyframes/<anything>.animation.json (the file name MUST end in "
+                        + "'animation.json') containing an animation named '{}', plus data/{}/fx/animation/type/{}.json.",
                         custom, state, custom.getNamespace(), custom.getPath(), custom.getNamespace(), custom.getPath());
                 return false;
             }

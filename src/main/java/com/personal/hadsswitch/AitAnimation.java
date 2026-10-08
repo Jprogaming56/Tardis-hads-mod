@@ -49,6 +49,50 @@ public final class AitAnimation {
         invoke(travel, "setAnimationFor", stateValue(stateName), resourceLocation);
     }
 
+    private static boolean accepted(Object result) {
+        // AiT returns Optional<ActionQueue>: present = it took the order, empty = it refused
+        return !(result instanceof java.util.Optional<?> o) || o.isPresent();
+    }
+
+    /** Asks AiT to land. Returns false if AiT refused (cooldown, vetoed by an event, not in flight...). */
+    public static boolean rematerialize(Object travel) throws Exception {
+        return accepted(invoke(travel, "rematerialize"));
+    }
+
+    /**
+     * AiT's own "dematerialise with a trip-specific arrival animation": AiT remembers the normal arrival animation,
+     * switches to ours when the TARDIS starts to land, and puts the normal one back once it has landed.
+     * Falls back to a plain dematerialise (NoSuchMethodException) if this AiT doesn't have that call.
+     * Returns false if AiT refused to dematerialise.
+     */
+    public static boolean dematerialize(Object travel, Object matId) throws Exception {
+        Object matAnim = null;
+        if (matId != null && isRegistered(matId)) {
+            Class<?> reg = Class.forName("dev.amble.ait.core.tardis.animation.v2.datapack.TardisAnimationRegistry");
+            Object instance = reg.getMethod("getInstance").invoke(null);
+            matAnim = invoke(instance, "instantiate", matId);
+        }
+        return accepted(invoke(travel, "dematerialize", null, matAnim));
+    }
+
+    /** The id of the animation that is really playing right now, null if none, "?" if we can't tell. */
+    public static String runningAnimationId(Object travel) {
+        try {
+            Object holder = invoke(travel, "getAnimations");
+            Method m = holder.getClass().getDeclaredMethod("getCurrent"); // protected in AiT
+            m.setAccessible(true);
+            Object cur = m.invoke(holder);
+            return cur == null ? null : String.valueOf(invoke(cur, "id"));
+        } catch (Exception e) {
+            return "?";
+        }
+    }
+
+    /** Replaces the animation that is playing right now with this one (AiT's own override; syncs to players). */
+    public static boolean forceAnimation(Object travel, Object resourceLocation) throws Exception {
+        return Boolean.TRUE.equals(invoke(travel, "setTemporaryAnimation", resourceLocation));
+    }
+
     /**
      * True if AiT has loaded this animation: both its type file (data/.../fx/animation/type) AND the keyframes it
      * points at (an animation of the same name inside a data/.../fx/animation/keyframes/*.animation.json file).

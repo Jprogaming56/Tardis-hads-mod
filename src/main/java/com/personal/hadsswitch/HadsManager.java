@@ -114,6 +114,8 @@ public final class HadsManager {
         boolean doorsClosing;
         boolean lastFollowing;
         boolean matAnimationSwapped;
+        boolean matLogged;
+        int matForced;
     }
 
     private record Scan(ServerLevel world, BlockPos pos, boolean followingPlayer) {}
@@ -294,8 +296,15 @@ public final class HadsManager {
                         AitBridge.setDestination(travel, dest);
                         // Only now, at the exact moment HADS asks to land, does our animation go in.
                         trip.matAnimationSwapped = swapAnimation(data, id, travel, "MAT", HADS_MAT_ANIMATION);
-                        AitBridge.rematerialize(travel);
+                        boolean accepted = AitAnimation.rematerialize(travel);
                         trip.rematCalledAt = now;
+                        LOGGER.info("HADS Switch: asked AiT to rematerialise: accepted={}, state now {}, MAT animation set to {}",
+                                accepted, AitBridge.stateName(travel), AitAnimation.animationIdFor(travel, "MAT"));
+                        if (!accepted && trip.matAnimationSwapped) {
+                            // AiT said no: nothing is landing, so take our animation straight back out
+                            restoreAnimation(server, data, id, "MAT", HADS_MAT_ANIMATION);
+                            trip.matAnimationSwapped = false;
+                        }
                     }
                 }
             }
@@ -313,8 +322,26 @@ public final class HadsManager {
                 restoreAllAnimations(server, data, id);
                 COOLDOWN.put(id, now + (wentAnywhere ? COOLDOWN_AFTER_TRIP : 600));
             }
+            case "MAT" -> {
+                // This only runs for a HADS trip. Make sure the animation really playing is ours; if AiT picked
+                // another one, replace the running animation with ours (AiT's own override, synced to players).
+                String running = AitAnimation.runningAnimationId(travel);
+                String ours = HADS_MAT_ANIMATION.toString();
+                if (!trip.matLogged) {
+                    trip.matLogged = true;
+                    LOGGER.info("HADS Switch: arrival started, running animation = {}, MAT animation set to {}",
+                            running, AitAnimation.animationIdFor(travel, "MAT"));
+                }
+                if (running != null && !"?".equals(running) && !ours.equals(running)
+                        && trip.matForced < 3 && AitAnimation.isRegistered(HADS_MAT_ANIMATION)) {
+                    trip.matForced++;
+                    boolean ok = AitAnimation.forceAnimation(travel, HADS_MAT_ANIMATION);
+                    LOGGER.warn("HADS Switch: AiT was playing {} for the arrival, forced {} (success={})",
+                            running, ours, ok);
+                }
+            }
             default -> {
-                // DEMAT or MAT: let the animation play
+                // DEMAT: let the animation play
             }
         }
     }
@@ -328,7 +355,12 @@ public final class HadsManager {
         AitBridge.setDestination(travel, t.homePos); // safe default: come back to the same spot
         // Our departure animation goes in only for this HADS dematerialise.
         swapAnimation(data, id, travel, "DEMAT", HADS_DEMAT_ANIMATION);
-        AitBridge.dematerialize(travel);
+        try {
+            // AiT's own call: it also sets up our arrival animation for the landing at the end of this trip
+            AitAnimation.dematerialize(travel, HADS_MAT_ANIMATION);
+        } catch (NoSuchMethodException e) {
+            AitBridge.dematerialize(travel);
+        }
         if ("LANDED".equals(AitBridge.stateName(travel))) {
             restoreAnimation(server, data, id, "DEMAT", HADS_DEMAT_ANIMATION); // AiT refused: undo straight away
             try {

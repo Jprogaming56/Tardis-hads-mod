@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.personal.hadsswitch.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "TardisMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

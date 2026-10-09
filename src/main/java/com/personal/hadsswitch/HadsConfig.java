@@ -24,6 +24,7 @@ public final class HadsConfig {
     private static final ForgeConfigSpec.DoubleValue TRIGGER_PROJECTILE_RADIUS;
     // ---- common: doors ----
     private static final ForgeConfigSpec.BooleanValue CLOSE_DOORS_FIRST;
+    private static final ForgeConfigSpec.BooleanValue KEEP_DOORS_OPEN;
     private static final ForgeConfigSpec.DoubleValue DOOR_CLOSE_TIMEOUT;
     // ---- common: timing ----
     private static final ForgeConfigSpec.DoubleValue COOLDOWN_AFTER_TRIP;
@@ -76,6 +77,12 @@ public final class HadsConfig {
                         "true  = if the doors are open, slam them shut and then leave (works with doors open)",
                         "false = HADS does nothing while the doors are open (like AiT's own rule)")
                 .define("closeDoorsFirst", true);
+        KEEP_DOORS_OPEN = b.comment(
+                        "EXPERIMENTAL. true = if the doors were open when HADS kicked in, shut them just long enough for",
+                        "AiT to accept the dematerialise, then open them again so they stay open while the TARDIS leaves.",
+                        "Needs AiT to have an openDoors call; if it doesn't, a warning is logged and the doors stay shut.",
+                        "Implies closeDoorsFirst, even if that is set to false.")
+                .define("keepDoorsOpen", false);
         DOOR_CLOSE_TIMEOUT = b.comment("Seconds: longest we wait for the doors to finish closing before leaving anyway")
                 .defineInRange("closeTimeoutSeconds", 2.0, 0.0, 30.0);
         b.pop();
@@ -153,6 +160,7 @@ public final class HadsConfig {
     public static double triggerExplosiveRadius() { return TRIGGER_EXPLOSIVE_RADIUS.get(); }
     public static double triggerProjectileRadius() { return TRIGGER_PROJECTILE_RADIUS.get(); }
     public static boolean closeDoorsFirst() { return CLOSE_DOORS_FIRST.get(); }
+    public static boolean keepDoorsOpen() { return KEEP_DOORS_OPEN.get(); }
     public static long doorTimeoutTicks() { return ticks(DOOR_CLOSE_TIMEOUT.get()); }
     public static long cooldownTicks() { return ticks(COOLDOWN_AFTER_TRIP.get()); }
     public static long failedCooldownTicks() { return ticks(COOLDOWN_AFTER_FALSE_ALARM.get()); }

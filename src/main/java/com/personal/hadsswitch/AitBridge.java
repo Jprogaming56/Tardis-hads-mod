@@ -144,6 +144,11 @@ public final class AitBridge {
         call(door, "closeDoors");
     }
 
+    /** Opens the doors again. Throws NoSuchMethodException if this AiT has no such call. */
+    public static void openDoors(Object door) throws Exception {
+        call(door, "openDoors");
+    }
+
     public static void alarm(Object tardis, boolean on) throws Exception {
         Object alarm = call(tardis, "alarm");
         call(alarm, on ? "enable" : "disable");

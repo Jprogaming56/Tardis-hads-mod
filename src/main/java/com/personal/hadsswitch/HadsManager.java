@@ -91,6 +91,8 @@ public final class HadsManager {
         long lastSearchAt = -1;
         final Set<UUID> listeners = new HashSet<>(); // players currently hearing the HADS music
         boolean doorsClosing;
+        boolean reopenDoors;
+        int reopenTries;
         boolean lastFollowing;
         boolean matAnimationSwapped;
         boolean matLogged;
@@ -196,7 +198,8 @@ public final class HadsManager {
             // AiT refuses to dematerialise with the doors open, so slam them shut first.
             Object door = AitBridge.door(tardis);
             if (AitBridge.isDoorOpen(door)) {
-                if (!HadsConfig.closeDoorsFirst()) return; // doors open and we may not shut them: stay put
+                if (!HadsConfig.closeDoorsFirst() && !HadsConfig.keepDoorsOpen()) return; // doors open and we may not shut them: stay put
+                t.reopenDoors = HadsConfig.keepDoorsOpen();
                 AitBridge.closeDoors(door);
                 t.doorsClosing = true;
                 TRIPS.put(id, t);
@@ -321,7 +324,11 @@ public final class HadsManager {
                 }
             }
             default -> {
-                // DEMAT: let the animation play
+                // DEMAT: let the animation play. If AiT shut the doors again, reopen them (a few tries only).
+                if (trip.reopenDoors && trip.reopenTries < 3 && AitBridge.isDoorClosed(AitBridge.door(tardis))) {
+                    trip.reopenTries++;
+                    reopenDoorsIfWanted(tardis, trip);
+                }
             }
         }
     }
@@ -343,6 +350,7 @@ public final class HadsManager {
         }
         if ("LANDED".equals(AitBridge.stateName(travel))) {
             restoreAnimation(server, data, id, "DEMAT", HADS_DEMAT_ANIMATION); // AiT refused: undo straight away
+            reopenDoorsIfWanted(tardis, t); // put the doors back how they were
             try {
                 AitBridge.setDestination(travel, t.originalDestination);
             } catch (Exception ignored) {
@@ -352,11 +360,26 @@ public final class HadsManager {
             COOLDOWN.put(id, now + HadsConfig.failedCooldownTicks());
             return;
         }
+        reopenDoorsIfWanted(tardis, t); // AiT has accepted, so the doors can go back to open
         t.doorsClosing = false;
         t.startedAt = now;
         if (HadsConfig.soundAlarm()) AitBridge.alarm(tardis, true);
         startMusic(server, id, t);
         TRIPS.put(id, t);
+    }
+
+    /** If the doors were open before HADS shut them for AiT, open them again (keepDoorsOpen option). */
+    private static void reopenDoorsIfWanted(Object tardis, Trip t) {
+        if (!t.reopenDoors) return;
+        try {
+            AitBridge.openDoors(AitBridge.door(tardis));
+        } catch (NoSuchMethodException e) {
+            t.reopenDoors = false;
+            LOGGER.warn("HADS Switch: keepDoorsOpen is on, but this AiT has no openDoors call, so the doors stay shut");
+        } catch (Exception e) {
+            t.reopenDoors = false;
+            LOGGER.warn("HADS Switch: could not reopen the doors", e);
+        }
     }
 
     /** Starts the HADS music for players near the parked exterior and for anyone standing inside that TARDIS. */

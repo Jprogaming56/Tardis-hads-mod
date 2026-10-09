@@ -39,6 +39,10 @@ public class HadsSwitchMod {
     public static final RegistryObject<SoundEvent> HADS_DEMAT_SOUND = SOUNDS.register("hads_demat",
             () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(MOD_ID, "hads_demat")));
 
+    /** Same song, but low-passed with a little echo, so it sounds like it is playing from inside the box. */
+    public static final RegistryObject<SoundEvent> HADS_DEMAT_MUFFLED_SOUND = SOUNDS.register("hads_demat_muffled",
+            () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(MOD_ID, "hads_demat_muffled")));
+
     public HadsSwitchMod() {
         IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
         BLOCKS.register(bus);

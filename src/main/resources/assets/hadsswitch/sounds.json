@@ -3,5 +3,10 @@
     "sounds": [
       { "name": "hadsswitch:hads_demat", "stream": true }
     ]
+  },
+  "hads_demat_muffled": {
+    "sounds": [
+      { "name": "hadsswitch:hads_demat_muffled", "stream": true }
+    ]
   }
 }

@@ -55,49 +55,28 @@ public final class HadsManager {
     /** How often we look around (ticks). */
     private static final int CHECK_INTERVAL = 10;
 
-    // What makes the TARDIS leave (measured from the parked exterior, in blocks).
-    private static final double TRIGGER_ENEMY_RADIUS = 6.0;
-    private static final double TRIGGER_EXPLOSIVE_RADIUS = 8.0;
-    private static final double TRIGGER_PROJECTILE_RADIUS = 4.0;
-
-    // What keeps it away (measured from YOU, in blocks).
-    private static final double PLAYER_ENEMY_RADIUS = 16.0;
-    private static final double PLAYER_EXPLOSIVE_RADIUS = 12.0;
-    private static final double PLAYER_PROJECTILE_RADIUS = 8.0;
-
-    /** Minimum time in the vortex, counted from when the dematerialise finishes (15 s). */
-    private static final long MIN_TIME_IN_VORTEX = 300;
-    /** How long it must be quiet around you before the TARDIS comes back (20 s). */
-    private static final long CALM_BEFORE_RETURN = 400;
-    /** Pause before HADS can trigger again after a trip (10 s). */
-    private static final long COOLDOWN_AFTER_TRIP = 200;
+    // All other numbers (radii, times, landing rules...) live in HadsConfig / config/hadsswitch-common.toml.
 
     /** The custom arrival animation, played only when coming back from a HADS trip. */
     private static final ResourceLocation HADS_MAT_ANIMATION = new ResourceLocation(HadsSwitchMod.MOD_ID, "wby_mat");
     /** The custom departure animation, played only when HADS itself makes the TARDIS dematerialise. */
     private static final ResourceLocation HADS_DEMAT_ANIMATION = new ResourceLocation(HadsSwitchMod.MOD_ID, "wby_demat");
 
-    /** Longest we wait for the doors to finish closing before dematerialising anyway (2 s). */
-    private static final long DOOR_CLOSE_TIMEOUT = 40;
-    /** Players this close to the parked TARDIS (blocks) hear the HADS music. */
-    private static final double MUSIC_RANGE = 32.0;
+    /** Sideways offsets to try, closest to you first (rebuilt if the config distances change). */
+    private static List<int[]> landingOffsets;
+    private static int offsetsMin = -1;
+    private static int offsetsMax = -1;
 
-    // Where the TARDIS is allowed to land near you.
-    /** Sideways distance from you (blocks): not on top of you, not far away. */
-    private static final int LANDING_MIN_DISTANCE = 3;
-    private static final int LANDING_MAX_DISTANCE = 6;
-    /** The spot needs a flat floor and clear air this far out to every side (1 = a 3x3 area). */
-    private static final int LANDING_HALF_WIDTH = 1;
-    /** Clear air needed above the floor (the exterior is 2 blocks tall). */
-    private static final int LANDING_HEIGHT = 2;
-    /** How far above / below you to look for a floor (blocks). */
-    private static final int LANDING_MAX_RISE = 3;
-    private static final int LANDING_MAX_DROP = 4;
-    /** How often to search for a landing spot while waiting in the vortex (ticks, 20 = 1 s). */
-    private static final long SEARCH_INTERVAL = 20;
-
-    /** Sideways offsets to try, closest to you first. */
-    private static final List<int[]> LANDING_OFFSETS = buildLandingOffsets();
+    private static List<int[]> landingOffsets() {
+        int min = HadsConfig.landingMinDistance();
+        int max = HadsConfig.landingMaxDistance();
+        if (landingOffsets == null || min != offsetsMin || max != offsetsMax) {
+            offsetsMin = min;
+            offsetsMax = max;
+            landingOffsets = buildLandingOffsets(min, max);
+        }
+        return landingOffsets;
+    }
 
     private static final class Trip {
         Object homePos;
@@ -199,7 +178,7 @@ public final class HadsManager {
             ServerLevel world = AitBridge.worldOf(posObj);
             BlockPos block = AitBridge.blockOf(posObj);
             if (world == null || block == null) return;
-            if (!isDanger(world, block, TRIGGER_ENEMY_RADIUS, TRIGGER_EXPLOSIVE_RADIUS, TRIGGER_PROJECTILE_RADIUS)) {
+            if (!isDanger(world, block, HadsConfig.triggerEnemyRadius(), HadsConfig.triggerExplosiveRadius(), HadsConfig.triggerProjectileRadius())) {
                 return;
             }
 
@@ -217,6 +196,7 @@ public final class HadsManager {
             // AiT refuses to dematerialise with the doors open, so slam them shut first.
             Object door = AitBridge.door(tardis);
             if (AitBridge.isDoorOpen(door)) {
+                if (!HadsConfig.closeDoorsFirst()) return; // doors open and we may not shut them: stay put
                 AitBridge.closeDoors(door);
                 t.doorsClosing = true;
                 TRIPS.put(id, t);
@@ -239,7 +219,7 @@ public final class HadsManager {
             if (AitBridge.isDoorOpen(door)) {
                 AitBridge.closeDoors(door); // someone reopened them: shut them again
             }
-            if (AitBridge.isDoorClosed(door) || now - trip.startedAt >= DOOR_CLOSE_TIMEOUT) {
+            if (AitBridge.isDoorClosed(door) || now - trip.startedAt >= HadsConfig.doorTimeoutTicks()) {
                 startHadsDemat(server, data, id, tardis, travel, trip, now);
             }
             return;
@@ -266,9 +246,9 @@ public final class HadsManager {
                 }
                 boolean danger = enabled && (scan.followingPlayer()
                         ? isDanger(scan.world(), scan.pos(),
-                                PLAYER_ENEMY_RADIUS, PLAYER_EXPLOSIVE_RADIUS, PLAYER_PROJECTILE_RADIUS)
+                                HadsConfig.playerEnemyRadius(), HadsConfig.playerExplosiveRadius(), HadsConfig.playerProjectileRadius())
                         : isDanger(scan.world(), scan.pos(),
-                                TRIGGER_ENEMY_RADIUS, TRIGGER_EXPLOSIVE_RADIUS, TRIGGER_PROJECTILE_RADIUS));
+                                HadsConfig.triggerEnemyRadius(), HadsConfig.triggerExplosiveRadius(), HadsConfig.triggerProjectileRadius()));
                 if (danger) {
                     trip.calmSince = -1;
                 } else if (trip.calmSince < 0) {
@@ -276,11 +256,11 @@ public final class HadsManager {
                 }
 
                 boolean ready = !enabled
-                        || (now - trip.flightSeenAt >= MIN_TIME_IN_VORTEX
+                        || (now - trip.flightSeenAt >= HadsConfig.minVortexTicks()
                         && trip.calmSince >= 0
-                        && now - trip.calmSince >= CALM_BEFORE_RETURN);
+                        && now - trip.calmSince >= HadsConfig.calmTicks());
                 boolean canTry = trip.rematCalledAt < 0 || now - trip.rematCalledAt >= 200;
-                if (ready && canTry && now - trip.lastSearchAt >= SEARCH_INTERVAL) {
+                if (ready && canTry && now - trip.lastSearchAt >= HadsConfig.searchIntervalTicks()) {
                     trip.lastSearchAt = now;
                     Object dest = trip.homePos;
                     boolean land = true;
@@ -317,10 +297,10 @@ public final class HadsManager {
                 } catch (Exception ignored) {
                     // not important
                 }
-                AitBridge.alarm(tardis, false);
+                if (HadsConfig.soundAlarm()) AitBridge.alarm(tardis, false);
                 TRIPS.remove(id);
                 restoreAllAnimations(server, data, id);
-                COOLDOWN.put(id, now + (wentAnywhere ? COOLDOWN_AFTER_TRIP : 600));
+                COOLDOWN.put(id, now + (wentAnywhere ? HadsConfig.cooldownTicks() : HadsConfig.failedCooldownTicks()));
             }
             case "MAT" -> {
                 // This only runs for a HADS trip. Make sure the animation really playing is ours; if AiT picked
@@ -332,7 +312,7 @@ public final class HadsManager {
                     LOGGER.info("HADS Switch: arrival started, running animation = {}, MAT animation set to {}",
                             running, AitAnimation.animationIdFor(travel, "MAT"));
                 }
-                if (running != null && !"?".equals(running) && !ours.equals(running)
+                if (HadsConfig.customAnimations() && running != null && !"?".equals(running) && !ours.equals(running)
                         && trip.matForced < 3 && AitAnimation.isRegistered(HADS_MAT_ANIMATION)) {
                     trip.matForced++;
                     boolean ok = AitAnimation.forceAnimation(travel, HADS_MAT_ANIMATION);
@@ -357,7 +337,7 @@ public final class HadsManager {
         swapAnimation(data, id, travel, "DEMAT", HADS_DEMAT_ANIMATION);
         try {
             // AiT's own call: it also sets up our arrival animation for the landing at the end of this trip
-            AitAnimation.dematerialize(travel, HADS_MAT_ANIMATION);
+            AitAnimation.dematerialize(travel, HadsConfig.customAnimations() ? HADS_MAT_ANIMATION : null);
         } catch (NoSuchMethodException e) {
             AitBridge.dematerialize(travel);
         }
@@ -369,18 +349,19 @@ public final class HadsManager {
                 // not important
             }
             TRIPS.remove(id);
-            COOLDOWN.put(id, now + 600);
+            COOLDOWN.put(id, now + HadsConfig.failedCooldownTicks());
             return;
         }
         t.doorsClosing = false;
         t.startedAt = now;
-        AitBridge.alarm(tardis, true);
+        if (HadsConfig.soundAlarm()) AitBridge.alarm(tardis, true);
         startMusic(server, id, t);
         TRIPS.put(id, t);
     }
 
     /** Starts the HADS music for players near the parked exterior and for anyone standing inside that TARDIS. */
     private static void startMusic(MinecraftServer server, UUID id, Trip t) {
+        if (!HadsConfig.playMusic()) return;
         Vec3 spot = Vec3.atCenterOf(t.homeBlock);
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
             boolean inside = false;
@@ -389,7 +370,7 @@ public final class HadsManager {
             } catch (Exception ignored) {
                 // not inside a TARDIS
             }
-            boolean near = p.serverLevel() == t.homeWorld && p.distanceToSqr(spot) <= MUSIC_RANGE * MUSIC_RANGE;
+            boolean near = p.serverLevel() == t.homeWorld && p.distanceToSqr(spot) <= HadsConfig.musicRange() * HadsConfig.musicRange();
             if (inside || near) {
                 HadsNetwork.send(p, HadsNetwork.Music.begin(inside, spot.x, spot.y, spot.z));
                 t.listeners.add(p.getUUID());
@@ -414,6 +395,7 @@ public final class HadsManager {
      */
     private static boolean swapAnimation(HadsData data, UUID id, Object travel, String state,
                                          ResourceLocation custom) {
+        if (!HadsConfig.customAnimations()) return false;
         try {
             if (!AitAnimation.isRegistered(custom)) {
                 LOGGER.error("HADS Switch: AiT has not loaded the animation {}, so the normal {} animation will play. "
@@ -477,7 +459,7 @@ public final class HadsManager {
 
     /** Where to look for danger: around the player if they are out in the world, otherwise the old spot. */
     private static Scan scanTarget(MinecraftServer server, Trip trip) {
-        if (trip.playerId != null) {
+        if (HadsConfig.landNearPlayer() && trip.playerId != null) {
             ServerPlayer p = server.getPlayerList().getPlayer(trip.playerId);
             if (p != null && p.isAlive() && !AitBridge.isInterior(p.serverLevel())) {
                 return new Scan(p.serverLevel(), p.blockPosition(), true);
@@ -486,12 +468,12 @@ public final class HadsManager {
         return new Scan(trip.homeWorld, trip.homeBlock, false);
     }
 
-    private static List<int[]> buildLandingOffsets() {
+    private static List<int[]> buildLandingOffsets(int minDist, int maxDist) {
         List<int[]> list = new ArrayList<>();
-        for (int dx = -LANDING_MAX_DISTANCE; dx <= LANDING_MAX_DISTANCE; dx++) {
-            for (int dz = -LANDING_MAX_DISTANCE; dz <= LANDING_MAX_DISTANCE; dz++) {
+        for (int dx = -maxDist; dx <= maxDist; dx++) {
+            for (int dz = -maxDist; dz <= maxDist; dz++) {
                 int far = Math.max(Math.abs(dx), Math.abs(dz));
-                if (far < LANDING_MIN_DISTANCE || far > LANDING_MAX_DISTANCE) continue;
+                if (far < minDist || far > maxDist) continue;
                 list.add(new int[] {dx, dz});
             }
         }
@@ -504,16 +486,16 @@ public final class HadsManager {
      * Returns null if there isn't one, in which case the TARDIS keeps waiting in the vortex.
      */
     private static BlockPos findLanding(ServerLevel world, BlockPos center) {
-        int maxK = Math.max(LANDING_MAX_RISE, LANDING_MAX_DROP);
-        for (int[] o : LANDING_OFFSETS) {
+        int maxK = Math.max(HadsConfig.landingMaxRise(), HadsConfig.landingMaxDrop());
+        for (int[] o : landingOffsets()) {
             int x = center.getX() + o[0];
             int z = center.getZ() + o[1];
             for (int k = 0; k <= maxK; k++) {
-                if (k <= LANDING_MAX_RISE) {
+                if (k <= HadsConfig.landingMaxRise()) {
                     BlockPos p = new BlockPos(x, center.getY() + k, z);
                     if (isSafeLanding(world, p)) return p;
                 }
-                if (k > 0 && k <= LANDING_MAX_DROP) {
+                if (k > 0 && k <= HadsConfig.landingMaxDrop()) {
                     BlockPos p = new BlockPos(x, center.getY() - k, z);
                     if (isSafeLanding(world, p)) return p;
                 }
@@ -527,8 +509,8 @@ public final class HadsManager {
      * border, have a flat solid dry floor, and be free of blocks, liquids and fire up to the exterior's height.
      */
     private static boolean isSafeLanding(ServerLevel world, BlockPos p) {
-        BlockPos lo = p.offset(-LANDING_HALF_WIDTH, -1, -LANDING_HALF_WIDTH);
-        BlockPos hi = p.offset(LANDING_HALF_WIDTH, LANDING_HEIGHT - 1, LANDING_HALF_WIDTH);
+        BlockPos lo = p.offset(-HadsConfig.landingHalfWidth(), -1, -HadsConfig.landingHalfWidth());
+        BlockPos hi = p.offset(HadsConfig.landingHalfWidth(), HadsConfig.landingHeight() - 1, HadsConfig.landingHalfWidth());
         if (world.isOutsideBuildHeight(lo) || world.isOutsideBuildHeight(hi)) return false;
         if (!world.getWorldBorder().isWithinBounds(lo) || !world.getWorldBorder().isWithinBounds(hi)) return false;
         if (!world.hasChunksAt(lo, hi)) return false;
@@ -550,18 +532,22 @@ public final class HadsManager {
                                     double enemyRadius, double explosiveRadius, double projectileRadius) {
         AABB base = new AABB(pos);
 
-        if (!world.getEntitiesOfClass(LivingEntity.class, base.inflate(enemyRadius),
+        if (HadsConfig.triggerOnHostiles() && enemyRadius > 0
+                && !world.getEntitiesOfClass(LivingEntity.class, base.inflate(enemyRadius),
                 e -> e.isAlive() && e instanceof Enemy && !(e instanceof NeutralMob n && !n.isAngry())).isEmpty()) {
             return true;
         }
-        if (!world.getEntitiesOfClass(Creeper.class, base.inflate(explosiveRadius),
+        if (HadsConfig.triggerOnCreepers() && explosiveRadius > 0
+                && !world.getEntitiesOfClass(Creeper.class, base.inflate(explosiveRadius),
                 c -> c.isAlive() && c.getSwellDir() > 0).isEmpty()) {
             return true;
         }
-        if (!world.getEntitiesOfClass(PrimedTnt.class, base.inflate(explosiveRadius), t -> true).isEmpty()) {
+        if (HadsConfig.triggerOnTnt() && explosiveRadius > 0
+                && !world.getEntitiesOfClass(PrimedTnt.class, base.inflate(explosiveRadius), t -> true).isEmpty()) {
             return true;
         }
-        return !world.getEntitiesOfClass(Projectile.class, base.inflate(projectileRadius),
+        return HadsConfig.triggerOnProjectiles() && projectileRadius > 0
+                && !world.getEntitiesOfClass(Projectile.class, base.inflate(projectileRadius),
                 p -> !(p.getOwner() instanceof Player)).isEmpty();
     }
 }

@@ -22,14 +22,6 @@ import net.minecraftforge.api.distmarker.OnlyIn;
  */
 @OnlyIn(Dist.CLIENT)
 public final class HadsClient {
-    /** How long the fade-out takes once the TARDIS has vanished (ticks, 20 = 1 second). */
-    private static final int FADE_TICKS = 30;
-
-    /** How long the song takes to come from inside the box to the outside world (ticks, 100 = 5 s, the demat). */
-    private static final int OUTWARD_TICKS = 100;
-    /** How loud the clear version starts for listeners outside (0 to 1). */
-    private static final float OUTSIDE_START_VOLUME = 0.15f;
-
     private static final List<FadingSound> CURRENT = new ArrayList<>();
 
     private HadsClient() {}
@@ -44,7 +36,7 @@ public final class HadsClient {
             // both are at the same point of the song.
             FadingSound clear = new FadingSound(m, HadsSwitchMod.HADS_DEMAT_SOUND.get(), false);
             CURRENT.add(clear);
-            if (!m.inside()) {
+            if (!m.inside() && HadsConfig.clientOutwardIntro()) {
                 CURRENT.add(new FadingSound(m, HadsSwitchMod.HADS_DEMAT_MUFFLED_SOUND.get(), true));
             }
             for (FadingSound s : CURRENT) {
@@ -87,8 +79,10 @@ public final class HadsClient {
         }
 
         private float startVolume() {
-            if (inside) return 1.0f;
-            return muffled ? 1.0f : OUTSIDE_START_VOLUME;
+            float base;
+            if (inside || !HadsConfig.clientOutwardIntro()) base = 1.0f;
+            else base = muffled ? 1.0f : HadsConfig.clientOutsideStartVolume();
+            return base * HadsConfig.clientMusicVolume();
         }
 
         void beginFade() {
@@ -109,28 +103,28 @@ public final class HadsClient {
         @Override
         public void tick() {
             float swell = 1.0f;
-            if (!inside && swellTick < OUTWARD_TICKS) {
+            if (!inside && HadsConfig.clientOutwardIntro() && swellTick < HadsConfig.clientOutwardTicks()) {
                 swellTick++;
-                float t = swellTick / (float) OUTWARD_TICKS;
+                float t = swellTick / (float) HadsConfig.clientOutwardTicks();
                 float eased = t * t * (3.0f - 2.0f * t); // smoothstep
                 if (muffled) {
                     swell = 1.0f - eased; // the muffled copy gives way...
                 } else {
-                    swell = OUTSIDE_START_VOLUME + (1.0f - OUTSIDE_START_VOLUME) * eased; // ...to the clear one
+                    swell = HadsConfig.clientOutsideStartVolume() + (1.0f - HadsConfig.clientOutsideStartVolume()) * eased; // ...to the clear one
                 }
-            } else if (!inside && muffled) {
+            } else if (!inside && HadsConfig.clientOutwardIntro() && muffled) {
                 swell = 0.0f;
             }
 
             float fade = 1.0f;
             if (fadeTick >= 0) {
                 fadeTick++;
-                fade = Math.max(0.0f, 1.0f - fadeTick / (float) FADE_TICKS);
-                if (fadeTick >= FADE_TICKS) {
+                fade = Math.max(0.0f, 1.0f - fadeTick / (float) HadsConfig.clientFadeTicks());
+                if (fadeTick >= HadsConfig.clientFadeTicks()) {
                     done = true;
                 }
             }
-            this.volume = swell * fade;
+            this.volume = swell * fade * HadsConfig.clientMusicVolume();
         }
     }
 }

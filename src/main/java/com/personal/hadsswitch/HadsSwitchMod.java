@@ -11,7 +11,9 @@ import net.minecraft.world.level.material.MapColor;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
+import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.DeferredRegister;
@@ -48,6 +50,8 @@ public class HadsSwitchMod {
         BLOCKS.register(bus);
         ITEMS.register(bus);
         SOUNDS.register(bus);
+        ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, HadsConfig.COMMON);
+        ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, HadsConfig.CLIENT);
         bus.addListener(this::commonSetup);
         bus.addListener(this::addToCreativeTab);
     }

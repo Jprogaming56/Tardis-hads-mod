@@ -1,0 +1,35 @@
+modLoader = "javafml"
+loaderVersion = "[47,)"
+license = "All rights reserved"
+
+
+[[mods]]
+modId = "renaissancesign"
+version = "1.0.0"
+displayTest = "IGNORE_ALL_VERSION"
+displayName = "Renaissance Sign"
+description = '''
+Gives the Adventures in Time Renaissance police box its missing POLICE / PUBLIC CALL / BOX sign, lit from within like the one on the show.
+'''
+
+[[dependencies.renaissancesign]]
+modId = "forge"
+mandatory = true
+versionRange = "[47,)"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.renaissancesign]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.20.1,1.21)"
+ordering = "NONE"
+side = "CLIENT"
+
+# AFTER matters: it loads this mod's resources after AiT's, so the sign textures here replace AiT's.
+[[dependencies.renaissancesign]]
+modId = "ait"
+mandatory = true
+versionRange = "*"
+ordering = "AFTER"
+side = "CLIENT"

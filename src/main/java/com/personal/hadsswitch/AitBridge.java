@@ -154,6 +154,35 @@ public final class AitBridge {
         call(alarm, on ? "enable" : "disable");
     }
 
+    public static boolean alarmEnabled(Object tardis) throws Exception {
+        Object alarm = call(tardis, "alarm");
+        return Boolean.TRUE.equals(call(alarm, "isEnabled"));
+    }
+
+    /**
+     * True if this entity is the console button AiT uses for the alarm (the old HADS button). Matched by
+     * class and control id, so it quietly returns false on an AiT that looks different.
+     */
+    public static boolean isAlarmControlEntity(Object entity) {
+        try {
+            boolean isControlEntity = false;
+            for (Class<?> k = entity.getClass(); k != null; k = k.getSuperclass()) {
+                if (k.getName().equals("dev.amble.ait.core.entities.ConsoleControlEntity")) {
+                    isControlEntity = true;
+                    break;
+                }
+            }
+            if (!isControlEntity) return false;
+            Object control = call(entity, "getControl");
+            if (control == null) return false;
+            if (control.getClass().getSimpleName().equals("HADSControl")) return true;
+            String id = String.valueOf(call(control, "id"));
+            return id.equals("ait:alarms") || id.equals("ait:alarm") || id.equals("ait:hads");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** True if this level is the inside of some TARDIS. */
     public static boolean isInterior(ServerLevel level) {
         try {

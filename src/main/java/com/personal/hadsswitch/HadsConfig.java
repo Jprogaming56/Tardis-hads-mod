@@ -48,6 +48,7 @@ public final class HadsConfig {
     private static final ForgeConfigSpec.DoubleValue MUSIC_RANGE;
     private static final ForgeConfigSpec.BooleanValue SOUND_ALARM;
     private static final ForgeConfigSpec.BooleanValue CUSTOM_ANIMATIONS;
+    private static final ForgeConfigSpec.BooleanValue ALARM_BUTTON_SILENCES;
 
     // ---- client ----
     private static final ForgeConfigSpec.DoubleValue MUSIC_VOLUME;
@@ -125,6 +126,10 @@ public final class HadsConfig {
         SOUND_ALARM = b.comment("Turn on the TARDIS alarm during a HADS trip").define("alarm", true);
         CUSTOM_ANIMATIONS = b.comment("Use the custom flickering departure / arrival animations (false = AiT's normal ones)")
                 .define("customAnimations", true);
+        ALARM_BUTTON_SILENCES = b.comment(
+                "Once a HADS Switch block is placed, the console alarm button toggles HADS instead of the alarm.",
+                "If the alarm is already ringing, should that press still just switch the alarm off? (true = yes, false = always toggle HADS)")
+                .define("alarmButtonSilencesRingingAlarm", true);
         b.pop();
 
         COMMON = b.build();
@@ -181,6 +186,7 @@ public final class HadsConfig {
     public static double musicRange() { return MUSIC_RANGE.get(); }
     public static boolean soundAlarm() { return SOUND_ALARM.get(); }
     public static boolean customAnimations() { return CUSTOM_ANIMATIONS.get(); }
+    public static boolean alarmButtonSilencesRingingAlarm() { return ALARM_BUTTON_SILENCES.get(); }
 
     // ---- client getters ----
     public static float clientMusicVolume() { return MUSIC_VOLUME.get().floatValue(); }

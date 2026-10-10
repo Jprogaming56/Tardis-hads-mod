@@ -1,5 +1,6 @@
 package com.personal.hadsswitch;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -23,6 +24,8 @@ public class HadsData extends SavedData {
     private final Map<UUID, String> pendingRestore = new HashMap<>();
     /** Normal departure (DEMAT) animation to put back after a HADS trip. */
     private final Map<UUID, String> pendingDematRestore = new HashMap<>();
+    /** HADS Switch blocks placed inside each TARDIS (packed block positions). While any exist, the console alarm button toggles HADS. */
+    private final Map<UUID, Set<Long>> linked = new HashMap<>();
 
     public static HadsData get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(HadsData::load, HadsData::new, NAME);
@@ -62,6 +65,16 @@ public class HadsData extends SavedData {
                 // skip bad entry
             }
         }
+        CompoundTag lk = tag.getCompound("linked");
+        for (String key : lk.getAllKeys()) {
+            try {
+                Set<Long> set = new HashSet<>();
+                for (long l : lk.getLongArray(key)) set.add(l);
+                if (!set.isEmpty()) data.linked.put(UUID.fromString(key), set);
+            } catch (IllegalArgumentException ignored) {
+                // skip bad entry
+            }
+        }
         return data;
     }
 
@@ -87,6 +100,11 @@ public class HadsData extends SavedData {
             pendDemat.putString(e.getKey().toString(), e.getValue());
         }
         tag.put("pending_restore_demat", pendDemat);
+        CompoundTag lk = new CompoundTag();
+        for (Map.Entry<UUID, Set<Long>> e : linked.entrySet()) {
+            lk.putLongArray(e.getKey().toString(), new ArrayList<>(e.getValue()));
+        }
+        tag.put("linked", lk);
         return tag;
     }
 
@@ -99,6 +117,26 @@ public class HadsData extends SavedData {
         if (changed) {
             setDirty();
         }
+    }
+
+    /** Remembers that a HADS Switch block at this position is linked to the TARDIS's alarm button. */
+    public void link(UUID tardisId, long packedPos) {
+        if (linked.computeIfAbsent(tardisId, k -> new HashSet<>()).add(packedPos)) {
+            setDirty();
+        }
+    }
+
+    public void unlink(UUID tardisId, long packedPos) {
+        Set<Long> set = linked.get(tardisId);
+        if (set != null && set.remove(packedPos)) {
+            if (set.isEmpty()) linked.remove(tardisId);
+            setDirty();
+        }
+    }
+
+    public Set<Long> linkedPositions(UUID tardisId) {
+        Set<Long> set = linked.get(tardisId);
+        return set == null ? Collections.emptySet() : Collections.unmodifiableSet(set);
     }
 
     public Set<UUID> enabledIds() {

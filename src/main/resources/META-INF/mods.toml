@@ -1,30 +1,32 @@
 modLoader = "javafml"
 loaderVersion = "[47,)"
-license = "All Rights Reserved"
+license = "All rights reserved"
 
 [[mods]]
-modId = "hads_switch"
-version = "${file.jarVersion}"
+modId = "hadsswitch"
+version = "1.0.0"
 displayName = "HADS Switch"
-description = '''Adds a block to toggle TARDIS HADS (Hostile Action Displacement System), plus a fix for the missing Renaissance police box sign.'''
+description = '''
+Adds a placeable HADS Switch block. Use it inside your TARDIS to turn Adventures in Time's built-in HADS on or off.
+'''
 
-[[dependencies.hads_switch]]
-    modId = "forge"
-    mandatory = true
-    versionRange = "[47,)"
-    ordering = "NONE"
-    side = "BOTH"
+[[dependencies.hadsswitch]]
+modId = "forge"
+mandatory = true
+versionRange = "[47,)"
+ordering = "NONE"
+side = "BOTH"
 
-[[dependencies.hads_switch]]
-    modId = "minecraft"
-    mandatory = true
-    versionRange = "[1.20.1,1.20.2)"
-    ordering = "NONE"
-    side = "BOTH"
+[[dependencies.hadsswitch]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.20.1,1.21)"
+ordering = "NONE"
+side = "BOTH"
 
-[[dependencies.hads_switch]]
-    modId = "aitforger"
-    mandatory = true
-    versionRange = "[1.0.4,)"
-    ordering = "AFTER"
-    side = "BOTH"
+[[dependencies.hadsswitch]]
+modId = "ait"
+mandatory = true
+versionRange = "*"
+ordering = "AFTER"
+side = "BOTH"
